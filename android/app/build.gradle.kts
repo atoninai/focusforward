@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.focusforward.focus_forward"
-        minSdk = 21
+        minSdk = 29
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

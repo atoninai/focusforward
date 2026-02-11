@@ -25,6 +25,16 @@ void main() async {
   // Initialize notifications
   await NotificationService.initialize();
 
+  // Schedule all saved alarms on app start — critical for reliability
+  try {
+    final alarms = await StorageService.getAlarms();
+    final bedAlarms = await StorageService.getBedAlarms();
+    final allAlarms = [...alarms, ...bedAlarms];
+    await NotificationService.scheduleAllAlarms(allAlarms);
+  } catch (_) {
+    // First launch, no alarms saved yet
+  }
+
   runApp(const FocusForwardApp());
 }
 
