@@ -10,6 +10,8 @@ class StorageService {
   static const String _alarmsKey = 'alarms';
   static const String _habitsKey = 'habits';
   static const String _permissionsGrantedKey = 'permissions_granted';
+  static const String _defaultSoundKey = 'default_alarm_sound';
+  static const String _bedAlarmsKey = 'bed_alarms';
 
   // ─── Permissions ───
   static Future<bool> arePermissionsGranted() async {
@@ -20,6 +22,17 @@ class StorageService {
   static Future<void> setPermissionsGranted(bool granted) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_permissionsGrantedKey, granted);
+  }
+
+  // ─── Default Alarm Sound ───
+  static Future<String> getDefaultSound() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_defaultSoundKey) ?? 'motivational_alarm';
+  }
+
+  static Future<void> setDefaultSound(String sound) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_defaultSoundKey, sound);
   }
 
   // ─── Routines ───
@@ -56,7 +69,7 @@ class StorageService {
     await prefs.setString(_goalsKey, Goal.encode(goals));
   }
 
-  // ─── Alarms ───
+  // ─── Alarms (regular) ───
   static Future<List<AlarmItem>> getAlarms() async {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(_alarmsKey);
@@ -71,9 +84,27 @@ class StorageService {
 
   static List<AlarmItem> _defaultAlarms() {
     return [
-      AlarmItem(id: '1', hour: 7, minute: 0, label: 'Daily Routine', repeatDays: [1, 2, 3, 4, 5, 6, 7], isEnabled: true, isUltraMode: true),
-      AlarmItem(id: '2', hour: 8, minute: 30, label: 'Deep Work', repeatDays: [1, 3, 5], isEnabled: false),
-      AlarmItem(id: '3', hour: 22, minute: 0, label: 'Wind Down', repeatDays: [1, 2, 3, 4, 5, 6, 7], isEnabled: false),
+      AlarmItem(id: '1', hour: 7, minute: 0, label: 'Daily Routine', repeatDays: [1, 2, 3, 4, 5, 6, 7], isEnabled: true, isUltraMode: true, alarmType: 'regular'),
+    ];
+  }
+
+  // ─── Bed Alarms (wake up & sleep) ───
+  static Future<List<AlarmItem>> getBedAlarms() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getString(_bedAlarmsKey);
+    if (data == null) return _defaultBedAlarms();
+    return AlarmItem.decode(data);
+  }
+
+  static Future<void> saveBedAlarms(List<AlarmItem> alarms) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_bedAlarmsKey, AlarmItem.encode(alarms));
+  }
+
+  static List<AlarmItem> _defaultBedAlarms() {
+    return [
+      AlarmItem(id: 'bed_wakeup', hour: 6, minute: 0, label: 'Wake Up', repeatDays: [1, 2, 3, 4, 5, 6, 7], isEnabled: false, alarmType: 'wakeup'),
+      AlarmItem(id: 'bed_sleep', hour: 22, minute: 0, label: 'Go to Sleep', repeatDays: [1, 2, 3, 4, 5, 6, 7], isEnabled: false, alarmType: 'sleep'),
     ];
   }
 
