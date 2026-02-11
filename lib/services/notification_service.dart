@@ -3,42 +3,41 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tzdata;
 
+/// Top-level background handler — MUST be a top-level function (not a method)
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  // This runs when user taps a notification action in the background
+  // The action ID tells us what they pressed
+  final actionId = response.actionId;
+  if (actionId == 'stop_alarm') {
+    // Alarm dismissed — nothing else to do
+  } else if (actionId == 'snooze_alarm') {
+    // Snooze: reschedule 5 min from now
+    // We'll handle this in the foreground callback since we need plugin access
+  }
+}
+
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
+  static Function(String alarmId)? onSnooze;
+
   static Future<void> initialize() async {
     tzdata.initializeTimeZones();
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
 
     await _plugin.initialize(
       initSettings,
-      onDidReceiveNotificationResponse: (response) {
-        // Handle notification tap
-      },
+      onDidReceiveNotificationResponse: _onNotificationAction,
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
-    // Create default notification channel
-    const channel = AndroidNotificationChannel(
-      'focus_forward_alarms',
-      'Focus Forward Alarms',
-      description: 'Alarm notifications',
-      importance: Importance.max,
-      playSound: true,
-      enableVibration: true,
-    );
-
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
-    // Create a channel per sound file
+    // Create notification channels per alarm sound
     for (final sound in ['motivational_alarm', 'loud_alarm_sound', 'extreme_alarm_clock']) {
-      final soundChannel = AndroidNotificationChannel(
+      final channel = AndroidNotificationChannel(
         'alarm_$sound',
         'Alarm - ${_soundDisplayName(sound)}',
         description: 'Alarm with $sound sound',
@@ -51,8 +50,82 @@ class NotificationService {
       await _plugin
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(soundChannel);
+          ?.createNotificationChannel(channel);
     }
+
+    // Default channel for general notifications
+    const defaultChannel = AndroidNotificationChannel(
+      'focus_forward_default',
+      'Focus Forward',
+      description: 'General notifications',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(defaultChannel);
+  }
+
+  /// Handle notification action taps in the foreground
+  static void _onNotificationAction(NotificationResponse response) {
+    final actionId = response.actionId;
+    if (actionId == 'snooze_alarm') {
+      // Snooze 5 minutes — schedule a one-off notification
+      _scheduleSnooze(response.id ?? 0);
+    }
+    // 'stop_alarm' just dismisses — no action needed
+  }
+
+  /// Schedule a snooze notification 5 min from now
+  static Future<void> _scheduleSnooze(int originalId) async {
+    final snoozeTime = DateTime.now().add(const Duration(minutes: 5));
+    final snoozeId = originalId + 10000; // unique ID for snooze
+
+    await _plugin.zonedSchedule(
+      snoozeId,
+      '⏰ Snoozed Alarm',
+      'Your snoozed alarm is going off! Time to get up!',
+      tz.TZDateTime.from(snoozeTime, tz.local),
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          'alarm_motivational_alarm',
+          'Alarm - Motivational',
+          channelDescription: 'Snoozed alarm',
+          importance: Importance.max,
+          priority: Priority.max,
+          icon: '@mipmap/ic_launcher',
+          color: const Color(0xFF8B5CF6),
+          sound: const RawResourceAndroidNotificationSound('motivational_alarm'),
+          playSound: true,
+          enableVibration: true,
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.alarm,
+          visibility: NotificationVisibility.public,
+          ongoing: true,
+          autoCancel: true,
+          styleInformation: const BigTextStyleInformation(
+            'Your snoozed alarm is going off! Get up and stay disciplined! 💪',
+            contentTitle: '⏰ Snoozed Alarm',
+            summaryText: 'Focus Forward',
+            htmlFormatContent: false,
+          ),
+          actions: <AndroidNotificationAction>[
+            const AndroidNotificationAction(
+              'stop_alarm',
+              '🛑 Stop',
+              cancelNotification: true,
+              showsUserInterface: false,
+            ),
+          ],
+        ),
+      ),
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    );
   }
 
   static String _soundDisplayName(String file) {
@@ -68,7 +141,7 @@ class NotificationService {
     }
   }
 
-  /// Schedule a single alarm. Uses the alarm's ID hash + day as notification ID.
+  /// Schedule a single alarm with full-screen intent, actions, and rich styling
   static Future<void> scheduleAlarm({
     required String alarmId,
     required String title,
@@ -97,7 +170,32 @@ class NotificationService {
         playSound: true,
         enableVibration: true,
         fullScreenIntent: true,
+        ongoing: true,
+        autoCancel: false,
         category: AndroidNotificationCategory.alarm,
+        visibility: NotificationVisibility.public,
+        // Rich notification styling
+        styleInformation: BigTextStyleInformation(
+          '$body\n\nStay disciplined! 💪🔥',
+          contentTitle: '⏰ $title',
+          summaryText: 'Focus Forward Alarm',
+          htmlFormatContent: false,
+        ),
+        // Action buttons
+        actions: <AndroidNotificationAction>[
+          const AndroidNotificationAction(
+            'stop_alarm',
+            '🛑 Stop Alarm',
+            cancelNotification: true,
+            showsUserInterface: false,
+          ),
+          const AndroidNotificationAction(
+            'snooze_alarm',
+            '😴 Snooze 5 min',
+            cancelNotification: true,
+            showsUserInterface: false,
+          ),
+        ],
       ),
     );
 
@@ -113,7 +211,7 @@ class NotificationService {
 
       await _plugin.zonedSchedule(
         notifId,
-        title,
+        '⏰ $title',
         body,
         tz.TZDateTime.from(scheduledDate, tz.local),
         details,
@@ -131,7 +229,7 @@ class NotificationService {
 
         await _plugin.zonedSchedule(
           notifId,
-          title,
+          '⏰ $title',
           body,
           tz.TZDateTime.from(scheduledDate, tz.local),
           details,
@@ -146,7 +244,6 @@ class NotificationService {
 
   /// Find the next occurrence of a specific day of week (1=Mon, 7=Sun)
   static DateTime _nextDateForDay(int day, int hour, int minute, DateTime from) {
-    // Convert our day format (1=Mon, 7=Sun) to Dart's (1=Mon, 7=Sun — same!)
     var daysUntil = day - from.weekday;
     if (daysUntil < 0) daysUntil += 7;
     if (daysUntil == 0) {
@@ -162,11 +259,12 @@ class NotificationService {
   /// Cancel all notifications for a specific alarm
   static Future<void> cancelAlarm(String alarmId) async {
     final baseId = alarmId.hashCode.abs() % 100000;
-    // Cancel the base (one-time) and all 7 possible day slots
     await _plugin.cancel(baseId);
     for (int day = 1; day <= 7; day++) {
       await _plugin.cancel(baseId + day);
     }
+    // Also cancel any snooze
+    await _plugin.cancel(baseId + 10000);
   }
 
   /// Schedule all enabled alarms (call on app start)
@@ -197,12 +295,14 @@ class NotificationService {
       body,
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'focus_forward_alarms',
-          'Focus Forward Alarms',
-          channelDescription: 'Alarm notifications',
+          'focus_forward_default',
+          'Focus Forward',
+          channelDescription: 'General notifications',
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
+          color: Color(0xFF8B5CF6),
+          styleInformation: BigTextStyleInformation(''),
         ),
       ),
     );

@@ -46,6 +46,9 @@ class _PermissionScreenState extends State<PermissionScreen>
     // Request exact alarm
     await Permission.scheduleExactAlarm.request();
 
+    // Request battery optimization exemption — critical for alarm reliability
+    await Permission.ignoreBatteryOptimizations.request();
+
     await StorageService.setPermissionsGranted(true);
 
     if (!mounted) return;
@@ -118,6 +121,12 @@ class _PermissionScreenState extends State<PermissionScreen>
                   Icons.folder_outlined,
                   'Storage',
                   'Save your data locally on device',
+                ),
+                const SizedBox(height: 16),
+                _buildPermissionItem(
+                  Icons.battery_saver,
+                  'Battery',
+                  'Keep alarms running in background',
                 ),
                 const Spacer(flex: 3),
                 // Grant button
