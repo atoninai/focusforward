@@ -1,7 +1,7 @@
 import 'dart:ui' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
-import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:flutter_timezone/flutter_timezone.dart';
 
 /// Top-level background handler — MUST be a top-level function (not a method)
@@ -20,18 +20,19 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   // ─── Channel IDs ───
-  static const String channelDefault = 'focus_forward_default';
+  static const String channelAlarm = 'focus_forward_alarm_channel';
   static const String channelBedtime = 'bedtime_reminder';
   static const String channelGoal = 'goal_reminder';
+  static const String channelDefault = 'focus_forward_default';
 
   static Future<void> initialize() async {
+    // CRITICAL: Initialize ALL timezones first
     tzdata.initializeTimeZones();
 
-    // Use flutter_native_timezone to get the REAL device timezone
+    // Get the REAL device timezone using flutter_timezone
     try {
-      final String timezoneName =
-          await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(timezoneName));
+      final String timeZoneName = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timeZoneName));
     } catch (_) {
       // Fallback: try offset matching as last resort
       try {
@@ -45,7 +46,7 @@ class NotificationService {
           }
         }
       } catch (_) {
-        // Keep UTC
+        // Keep UTC as absolute last resort
       }
     }
 
@@ -69,7 +70,19 @@ class NotificationService {
 
     // ─── Create notification channels ───
 
-    // Alarm channels (per sound)
+    // Main alarm channel (Importance.max, with sound)
+    const alarmChannel = AndroidNotificationChannel(
+      channelAlarm,
+      'Alarms',
+      description: 'Channel for Alarm notifications',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+      sound: RawResourceAndroidNotificationSound('loud_alarm_sound'),
+    );
+    await androidPlugin?.createNotificationChannel(alarmChannel);
+
+    // Per-sound alarm channels
     for (final sound in [
       'motivational_alarm',
       'loud_alarm_sound',
@@ -92,7 +105,7 @@ class NotificationService {
       channelBedtime,
       'Bedtime Reminder',
       description: 'Wake-up and sleep time reminders',
-      importance: Importance.high,
+      importance: Importance.max,
       playSound: true,
       enableVibration: true,
     );
@@ -134,22 +147,23 @@ class NotificationService {
     final snoozeTime = DateTime.now().add(const Duration(minutes: 5));
     final snoozeId = originalId + 10000;
 
+    final tzSnoozeTime = tz.TZDateTime.from(snoozeTime, tz.local);
+
     await _plugin.zonedSchedule(
       snoozeId,
       '⏰ Snoozed Alarm',
       'Your snoozed alarm is going off! Time to get up!',
-      tz.TZDateTime.from(snoozeTime, tz.local),
-      NotificationDetails(
+      tzSnoozeTime,
+      const NotificationDetails(
         android: AndroidNotificationDetails(
-          'alarm_motivational_alarm',
-          'Alarm - Motivational',
+          channelAlarm,
+          'Alarms',
           channelDescription: 'Snoozed alarm',
           importance: Importance.max,
           priority: Priority.max,
           icon: '@mipmap/ic_launcher',
-          color: const Color(0xFF8B5CF6),
-          sound: const RawResourceAndroidNotificationSound(
-              'motivational_alarm'),
+          color: Color(0xFF8B5CF6),
+          sound: RawResourceAndroidNotificationSound('motivational_alarm'),
           playSound: true,
           enableVibration: true,
           fullScreenIntent: true,
@@ -157,13 +171,13 @@ class NotificationService {
           visibility: NotificationVisibility.public,
           ongoing: true,
           autoCancel: true,
-          styleInformation: const BigTextStyleInformation(
+          styleInformation: BigTextStyleInformation(
             'Your snoozed alarm is going off! Get up and stay disciplined! 💪',
             contentTitle: '⏰ Snoozed Alarm',
             summaryText: 'Focus Forward',
           ),
           actions: <AndroidNotificationAction>[
-            const AndroidNotificationAction(
+            AndroidNotificationAction(
               'stop_alarm',
               '🛑 Stop',
               cancelNotification: true,
@@ -191,7 +205,7 @@ class NotificationService {
     }
   }
 
-  /// Determine which channel to use based on alarm type
+  /// Get channel ID based on alarm type
   static String _channelIdForAlarm(String alarmType, String soundFile) {
     switch (alarmType) {
       case 'wakeup':
@@ -203,6 +217,7 @@ class NotificationService {
     }
   }
 
+  /// Get channel name based on alarm type
   static String _channelNameForAlarm(String alarmType, String soundFile) {
     switch (alarmType) {
       case 'wakeup':
@@ -214,7 +229,19 @@ class NotificationService {
     }
   }
 
-  /// Schedule a single alarm
+  /// Get display title prefix based on alarm type
+  static String _titlePrefix(String alarmType) {
+    switch (alarmType) {
+      case 'sleep':
+        return '🌙';
+      case 'wakeup':
+        return '☀️';
+      default:
+        return '⏰';
+    }
+  }
+
+  /// Schedule a single alarm notification
   static Future<void> scheduleAlarm({
     required String alarmId,
     required String title,
@@ -225,12 +252,12 @@ class NotificationService {
     required String soundFile,
     String alarmType = 'regular',
   }) async {
+    // Cancel any existing alarm with this ID first
     await cancelAlarm(alarmId);
 
     final channelId = _channelIdForAlarm(alarmType, soundFile);
     final channelName = _channelNameForAlarm(alarmType, soundFile);
-
-    // Only use custom sound for regular alarms; bedtime uses default channel sound
+    final prefix = _titlePrefix(alarmType);
     final bool useCustomSound = alarmType == 'regular';
 
     final details = NotificationDetails(
@@ -256,11 +283,7 @@ class NotificationService {
         visibility: NotificationVisibility.public,
         styleInformation: BigTextStyleInformation(
           '$body\n\nStay disciplined! 💪🔥',
-          contentTitle: alarmType == 'sleep'
-              ? '🌙 $title'
-              : alarmType == 'wakeup'
-                  ? '☀️ $title'
-                  : '⏰ $title',
+          contentTitle: '$prefix $title',
           summaryText: alarmType == 'regular'
               ? 'Focus Forward Alarm'
               : 'Focus Forward Bedtime',
@@ -284,9 +307,11 @@ class NotificationService {
 
     if (repeatDays.isEmpty) {
       // One-time alarm
-      final now = DateTime.now();
-      var scheduledDate =
-          DateTime(now.year, now.month, now.day, hour, minute);
+      final now = tz.TZDateTime.now(tz.local);
+      var scheduledDate = tz.TZDateTime(
+          tz.local, now.year, now.month, now.day, hour, minute);
+
+      // If the time has already passed today, schedule for tomorrow
       if (scheduledDate.isBefore(now) ||
           scheduledDate.isAtSameMomentAs(now)) {
         scheduledDate = scheduledDate.add(const Duration(days: 1));
@@ -296,34 +321,26 @@ class NotificationService {
 
       await _plugin.zonedSchedule(
         notifId,
-        alarmType == 'sleep'
-            ? '🌙 $title'
-            : alarmType == 'wakeup'
-                ? '☀️ $title'
-                : '⏰ $title',
+        '$prefix $title',
         body,
-        tz.TZDateTime.from(scheduledDate, tz.local),
+        scheduledDate,
         details,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       );
     } else {
-      // Repeating — one per day of week
+      // Repeating — schedule one per day of week
       for (final day in repeatDays) {
         final notifId = (alarmId.hashCode.abs() % 100000) + day;
-        final now = DateTime.now();
-        final scheduledDate = _nextDateForDay(day, hour, minute, now);
+        final now = tz.TZDateTime.now(tz.local);
+        final scheduledDate = _nextTZDateForDay(day, hour, minute, now);
 
         await _plugin.zonedSchedule(
           notifId,
-          alarmType == 'sleep'
-              ? '🌙 $title'
-              : alarmType == 'wakeup'
-                  ? '☀️ $title'
-                  : '⏰ $title',
+          '$prefix $title',
           body,
-          tz.TZDateTime.from(scheduledDate, tz.local),
+          scheduledDate,
           details,
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
@@ -334,28 +351,31 @@ class NotificationService {
     }
   }
 
-  static DateTime _nextDateForDay(
-      int day, int hour, int minute, DateTime from) {
+  /// Calculate the next occurrence of a given weekday+time as a TZDateTime
+  static tz.TZDateTime _nextTZDateForDay(
+      int day, int hour, int minute, tz.TZDateTime from) {
     var daysUntil = day - from.weekday;
     if (daysUntil < 0) daysUntil += 7;
     if (daysUntil == 0) {
-      final todayAlarm =
-          DateTime(from.year, from.month, from.day, hour, minute);
+      final todayAlarm = tz.TZDateTime(
+          tz.local, from.year, from.month, from.day, hour, minute);
       if (todayAlarm.isBefore(from)) {
         daysUntil = 7;
       }
     }
     final target = from.add(Duration(days: daysUntil));
-    return DateTime(target.year, target.month, target.day, hour, minute);
+    return tz.TZDateTime(
+        tz.local, target.year, target.month, target.day, hour, minute);
   }
 
+  /// Cancel all notifications for a given alarm ID
   static Future<void> cancelAlarm(String alarmId) async {
     final baseId = alarmId.hashCode.abs() % 100000;
     await _plugin.cancel(baseId);
     for (int day = 1; day <= 7; day++) {
       await _plugin.cancel(baseId + day);
     }
-    await _plugin.cancel(baseId + 10000);
+    await _plugin.cancel(baseId + 10000); // snooze ID
   }
 
   /// Schedule all enabled alarms — call on app start
@@ -376,7 +396,7 @@ class NotificationService {
     }
   }
 
-  /// Show a goal reminder notification
+  /// Show a goal reminder notification (instant)
   static Future<void> showGoalNotification({
     required int id,
     required String title,
@@ -401,7 +421,7 @@ class NotificationService {
     );
   }
 
-  /// Show a bedtime reminder notification
+  /// Show a bedtime reminder notification (instant)
   static Future<void> showBedtimeNotification({
     required int id,
     required String title,
@@ -425,6 +445,7 @@ class NotificationService {
     );
   }
 
+  /// Show a general instant notification
   static Future<void> showInstantNotification({
     required int id,
     required String title,
@@ -443,6 +464,32 @@ class NotificationService {
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
           color: Color(0xFF8B5CF6),
+        ),
+      ),
+    );
+  }
+
+  /// Test: fire an instant alarm notification to verify everything works
+  static Future<void> testAlarmNotification() async {
+    await _plugin.show(
+      99999,
+      '⏰ Test Alarm',
+      'If you see this, alarm notifications are working!',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelAlarm,
+          'Alarms',
+          channelDescription: 'Test alarm notification',
+          importance: Importance.max,
+          priority: Priority.max,
+          icon: '@mipmap/ic_launcher',
+          color: Color(0xFF8B5CF6),
+          sound: RawResourceAndroidNotificationSound('loud_alarm_sound'),
+          playSound: true,
+          enableVibration: true,
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.alarm,
+          visibility: NotificationVisibility.public,
         ),
       ),
     );

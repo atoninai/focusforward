@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../services/storage_service.dart';
+import '../services/notification_service.dart';
 import 'main_screen.dart';
 
 class PermissionScreen extends StatefulWidget {
@@ -37,17 +38,74 @@ class _PermissionScreenState extends State<PermissionScreen>
   Future<void> _requestPermissions() async {
     setState(() => _loading = true);
 
-    // Request notifications
+    // 1. Request notifications (Android 13+)
     await Permission.notification.request();
 
-    // Request storage
+    // 2. Request storage
     await Permission.storage.request();
 
-    // Request exact alarm
-    await Permission.scheduleExactAlarm.request();
+    // 3. Request exact alarm (Android 12+ / API 31+)
+    // On Android 12+, scheduleExactAlarm cannot be granted by a dialog —
+    // the user MUST enable it manually in Settings > Apps > Alarms & Reminders.
+    final exactAlarmStatus = await Permission.scheduleExactAlarm.status;
+    if (!exactAlarmStatus.isGranted) {
+      // Try requesting it first
+      final result = await Permission.scheduleExactAlarm.request();
+      if (!result.isGranted && mounted) {
+        // Must open settings for the user to enable "Alarms & Reminders"
+        final shouldOpen = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppTheme.surfaceDark,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text(
+              'Alarm Permission Required',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+            ),
+            content: const Text(
+              'To set alarms, you need to enable "Alarms & Reminders" in the app settings.\n\nTap "Open Settings" and enable the permission.',
+              style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Skip',
+                    style: TextStyle(color: Color(0xFF9CA3AF))),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Open Settings',
+                    style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        );
+        if (shouldOpen == true) {
+          await openAppSettings();
+          // Wait a moment for the user to come back
+          await Future.delayed(const Duration(seconds: 1));
+        }
+      }
+    }
 
-    // Request battery optimization exemption — critical for alarm reliability
+    // 4. Request battery optimization exemption — critical for alarm reliability
     await Permission.ignoreBatteryOptimizations.request();
+
+    // 5. Send a test notification to verify everything works
+    try {
+      await NotificationService.testAlarmNotification();
+    } catch (_) {
+      // Ignore errors in test
+    }
 
     await StorageService.setPermissionsGranted(true);
 
@@ -83,7 +141,8 @@ class _PermissionScreenState extends State<PermissionScreen>
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: AppTheme.neonStrongShadow,
                   ),
-                  child: const Icon(Icons.bolt, color: Colors.white, size: 48),
+                  child:
+                      const Icon(Icons.bolt, color: Colors.white, size: 48),
                 ),
                 const SizedBox(height: 32),
                 const Text(

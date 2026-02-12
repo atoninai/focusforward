@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../models/alarm_item.dart';
 import '../services/storage_service.dart';
@@ -58,9 +59,76 @@ class _AlarmScreenState extends State<AlarmScreen> {
     await NotificationService.scheduleAllAlarms(allAlarms);
   }
 
+  /// Show a countdown popup: "Alarm in X hours, Y minutes"
+  void _showAlarmCountdown(int hour, int minute) {
+    if (!mounted) return;
+    final now = DateTime.now();
+    var alarmTime = DateTime(now.year, now.month, now.day, hour, minute);
+    if (alarmTime.isBefore(now) || alarmTime.isAtSameMomentAs(now)) {
+      alarmTime = alarmTime.add(const Duration(days: 1));
+    }
+    final diff = alarmTime.difference(now);
+    final hours = diff.inHours;
+    final minutes = diff.inMinutes % 60;
+
+    String message;
+    if (hours > 0 && minutes > 0) {
+      message = 'Alarm in $hours ${hours == 1 ? "hour" : "hours"}, $minutes ${minutes == 1 ? "minute" : "minutes"}';
+    } else if (hours > 0) {
+      message = 'Alarm in $hours ${hours == 1 ? "hour" : "hours"}';
+    } else if (minutes > 0) {
+      message = 'Alarm in $minutes ${minutes == 1 ? "minute" : "minutes"}';
+    } else {
+      message = 'Alarm in less than a minute';
+    }
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.alarm, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppTheme.primary.withValues(alpha: 0.9),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
   Future<void> _saveAndScheduleAlarms() async {
     await StorageService.saveAlarms(_alarms);
     await StorageService.saveBedAlarms(_bedAlarms);
+
+    // Check exact alarm permission before scheduling
+    final exactAlarmStatus = await Permission.scheduleExactAlarm.status;
+    if (!exactAlarmStatus.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+                'Exact alarm permission required. Tap to open Settings.'),
+            action: SnackBarAction(
+              label: 'Settings',
+              onPressed: () => openAppSettings(),
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      return;
+    }
+
     final allAlarms = [..._alarms, ..._bedAlarms];
     await NotificationService.scheduleAllAlarms(allAlarms);
   }
@@ -69,6 +137,8 @@ class _AlarmScreenState extends State<AlarmScreen> {
     setState(() => _alarms[index].isEnabled = !_alarms[index].isEnabled);
     if (!_alarms[index].isEnabled) {
       NotificationService.cancelAlarm(_alarms[index].id);
+    } else {
+      _showAlarmCountdown(_alarms[index].hour, _alarms[index].minute);
     }
     _saveAndScheduleAlarms();
   }
@@ -84,6 +154,8 @@ class _AlarmScreenState extends State<AlarmScreen> {
     setState(() => _bedAlarms[index].isEnabled = !_bedAlarms[index].isEnabled);
     if (!_bedAlarms[index].isEnabled) {
       NotificationService.cancelAlarm(_bedAlarms[index].id);
+    } else {
+      _showAlarmCountdown(_bedAlarms[index].hour, _bedAlarms[index].minute);
     }
     _saveAndScheduleAlarms();
   }
@@ -108,6 +180,9 @@ class _AlarmScreenState extends State<AlarmScreen> {
       _bedAlarms[index].hour = picked.hour;
       _bedAlarms[index].minute = picked.minute;
     });
+    if (_bedAlarms[index].isEnabled) {
+      _showAlarmCountdown(picked.hour, picked.minute);
+    }
     _saveAndScheduleAlarms();
   }
 
@@ -251,6 +326,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
         audioPlayer: _audioPlayer,
         onSave: (alarm) {
           setState(() => _alarms.add(alarm));
+          _showAlarmCountdown(alarm.hour, alarm.minute);
           _saveAndScheduleAlarms();
         },
       ),
@@ -271,6 +347,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
         existingAlarm: _alarms[index],
         onSave: (alarm) {
           setState(() => _alarms[index] = alarm);
+          _showAlarmCountdown(alarm.hour, alarm.minute);
           _saveAndScheduleAlarms();
         },
       ),
