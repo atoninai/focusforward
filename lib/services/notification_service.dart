@@ -2,7 +2,7 @@ import 'dart:ui' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tzdata;
-import 'package:flutter_native_timezone/flutter_native_timezone.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 
 /// Top-level background handler — MUST be a top-level function (not a method)
 @pragma('vm:entry-point')
@@ -30,7 +30,7 @@ class NotificationService {
     // Use flutter_native_timezone to get the REAL device timezone
     try {
       final String timezoneName =
-          await FlutterNativeTimezone.getLocalTimezone();
+          await FlutterTimezone.getLocalTimezone();
       tz.setLocalLocation(tz.getLocation(timezoneName));
     } catch (_) {
       // Fallback: try offset matching as last resort
