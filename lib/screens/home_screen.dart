@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
@@ -15,6 +16,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<Routine> _routines = [];
   late AnimationController _fillController;
   late Animation<double> _fillAnimation;
+  Timer? _clockTimer;
+  DateTime _currentTime = DateTime.now();
 
   @override
   void initState() {
@@ -26,6 +29,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _fillAnimation =
         CurvedAnimation(parent: _fillController, curve: Curves.easeOut);
     _loadData();
+    // Update date/time every minute
+    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() => _currentTime = DateTime.now());
+      }
+    });
   }
 
   Future<void> _loadData() async {
@@ -36,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _clockTimer?.cancel();
     _fillController.dispose();
     super.dispose();
   }
@@ -151,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = _currentTime;
     final dateStr = DateFormat('EEEE, MMM d').format(now);
 
     return Scaffold(

@@ -2,6 +2,7 @@ import 'dart:ui' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:flutter_native_timezone/flutter_native_timezone.dart';
 
 /// Top-level background handler — MUST be a top-level function (not a method)
 @pragma('vm:entry-point')
@@ -18,26 +19,38 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
+  // ─── Channel IDs ───
+  static const String channelDefault = 'focus_forward_default';
+  static const String channelBedtime = 'bedtime_reminder';
+  static const String channelGoal = 'goal_reminder';
+
   static Future<void> initialize() async {
     tzdata.initializeTimeZones();
 
-    // Set local timezone to device timezone
+    // Use flutter_native_timezone to get the REAL device timezone
     try {
-      final now = DateTime.now();
-      final localOffset = now.timeZoneOffset;
-      // Find matching timezone
-      for (final loc in tz.timeZoneDatabase.locations.values) {
-        final tzNow = tz.TZDateTime.now(loc);
-        if (tzNow.timeZoneOffset == localOffset) {
-          tz.setLocalLocation(loc);
-          break;
-        }
-      }
+      final String timezoneName =
+          await FlutterNativeTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timezoneName));
     } catch (_) {
-      // Fallback: keep UTC
+      // Fallback: try offset matching as last resort
+      try {
+        final now = DateTime.now();
+        final localOffset = now.timeZoneOffset;
+        for (final loc in tz.timeZoneDatabase.locations.values) {
+          final tzNow = tz.TZDateTime.now(loc);
+          if (tzNow.timeZoneOffset == localOffset) {
+            tz.setLocalLocation(loc);
+            break;
+          }
+        }
+      } catch (_) {
+        // Keep UTC
+      }
     }
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
 
     await _plugin.initialize(
@@ -54,7 +67,9 @@ class NotificationService {
       await androidPlugin.requestExactAlarmsPermission();
     }
 
-    // Create notification channels per alarm sound
+    // ─── Create notification channels ───
+
+    // Alarm channels (per sound)
     for (final sound in [
       'motivational_alarm',
       'loud_alarm_sound',
@@ -63,19 +78,40 @@ class NotificationService {
       final channel = AndroidNotificationChannel(
         'alarm_$sound',
         'Alarm - ${_soundDisplayName(sound)}',
-        description: 'Alarm with $sound sound',
+        description: 'Alarm notifications with $sound sound',
         importance: Importance.max,
         playSound: true,
         enableVibration: true,
         sound: RawResourceAndroidNotificationSound(sound),
       );
-
       await androidPlugin?.createNotificationChannel(channel);
     }
 
+    // Bedtime / wake-up channel
+    const bedtimeChannel = AndroidNotificationChannel(
+      channelBedtime,
+      'Bedtime Reminder',
+      description: 'Wake-up and sleep time reminders',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    );
+    await androidPlugin?.createNotificationChannel(bedtimeChannel);
+
+    // Goal reminder channel
+    const goalChannel = AndroidNotificationChannel(
+      channelGoal,
+      'Goal Reminder',
+      description: 'Notifications for your daily goals',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    );
+    await androidPlugin?.createNotificationChannel(goalChannel);
+
     // Default channel
     const defaultChannel = AndroidNotificationChannel(
-      'focus_forward_default',
+      channelDefault,
       'Focus Forward',
       description: 'General notifications',
       importance: Importance.high,
@@ -112,7 +148,8 @@ class NotificationService {
           priority: Priority.max,
           icon: '@mipmap/ic_launcher',
           color: const Color(0xFF8B5CF6),
-          sound: const RawResourceAndroidNotificationSound('motivational_alarm'),
+          sound: const RawResourceAndroidNotificationSound(
+              'motivational_alarm'),
           playSound: true,
           enableVibration: true,
           fullScreenIntent: true,
@@ -154,6 +191,29 @@ class NotificationService {
     }
   }
 
+  /// Determine which channel to use based on alarm type
+  static String _channelIdForAlarm(String alarmType, String soundFile) {
+    switch (alarmType) {
+      case 'wakeup':
+      case 'sleep':
+        return channelBedtime;
+      case 'regular':
+      default:
+        return 'alarm_$soundFile';
+    }
+  }
+
+  static String _channelNameForAlarm(String alarmType, String soundFile) {
+    switch (alarmType) {
+      case 'wakeup':
+      case 'sleep':
+        return 'Bedtime Reminder';
+      case 'regular':
+      default:
+        return 'Alarm - ${_soundDisplayName(soundFile)}';
+    }
+  }
+
   /// Schedule a single alarm
   static Future<void> scheduleAlarm({
     required String alarmId,
@@ -163,22 +223,30 @@ class NotificationService {
     required int minute,
     required List<int> repeatDays,
     required String soundFile,
+    String alarmType = 'regular',
   }) async {
     await cancelAlarm(alarmId);
 
-    final channelId = 'alarm_$soundFile';
-    final channelName = 'Alarm - ${_soundDisplayName(soundFile)}';
+    final channelId = _channelIdForAlarm(alarmType, soundFile);
+    final channelName = _channelNameForAlarm(alarmType, soundFile);
+
+    // Only use custom sound for regular alarms; bedtime uses default channel sound
+    final bool useCustomSound = alarmType == 'regular';
 
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
         channelId,
         channelName,
-        channelDescription: 'Alarm notification',
+        channelDescription: alarmType == 'regular'
+            ? 'Alarm notification'
+            : 'Bedtime reminder notification',
         importance: Importance.max,
         priority: Priority.max,
         icon: '@mipmap/ic_launcher',
         color: const Color(0xFF8B5CF6),
-        sound: RawResourceAndroidNotificationSound(soundFile),
+        sound: useCustomSound
+            ? RawResourceAndroidNotificationSound(soundFile)
+            : null,
         playSound: true,
         enableVibration: true,
         fullScreenIntent: true,
@@ -188,8 +256,14 @@ class NotificationService {
         visibility: NotificationVisibility.public,
         styleInformation: BigTextStyleInformation(
           '$body\n\nStay disciplined! 💪🔥',
-          contentTitle: '⏰ $title',
-          summaryText: 'Focus Forward Alarm',
+          contentTitle: alarmType == 'sleep'
+              ? '🌙 $title'
+              : alarmType == 'wakeup'
+                  ? '☀️ $title'
+                  : '⏰ $title',
+          summaryText: alarmType == 'regular'
+              ? 'Focus Forward Alarm'
+              : 'Focus Forward Bedtime',
         ),
         actions: <AndroidNotificationAction>[
           const AndroidNotificationAction(
@@ -211,8 +285,10 @@ class NotificationService {
     if (repeatDays.isEmpty) {
       // One-time alarm
       final now = DateTime.now();
-      var scheduledDate = DateTime(now.year, now.month, now.day, hour, minute);
-      if (scheduledDate.isBefore(now)) {
+      var scheduledDate =
+          DateTime(now.year, now.month, now.day, hour, minute);
+      if (scheduledDate.isBefore(now) ||
+          scheduledDate.isAtSameMomentAs(now)) {
         scheduledDate = scheduledDate.add(const Duration(days: 1));
       }
 
@@ -220,7 +296,11 @@ class NotificationService {
 
       await _plugin.zonedSchedule(
         notifId,
-        '⏰ $title',
+        alarmType == 'sleep'
+            ? '🌙 $title'
+            : alarmType == 'wakeup'
+                ? '☀️ $title'
+                : '⏰ $title',
         body,
         tz.TZDateTime.from(scheduledDate, tz.local),
         details,
@@ -237,7 +317,11 @@ class NotificationService {
 
         await _plugin.zonedSchedule(
           notifId,
-          '⏰ $title',
+          alarmType == 'sleep'
+              ? '🌙 $title'
+              : alarmType == 'wakeup'
+                  ? '☀️ $title'
+                  : '⏰ $title',
           body,
           tz.TZDateTime.from(scheduledDate, tz.local),
           details,
@@ -286,9 +370,59 @@ class NotificationService {
           minute: alarm.minute,
           repeatDays: List<int>.from(alarm.repeatDays),
           soundFile: alarm.soundFile ?? 'motivational_alarm',
+          alarmType: alarm.alarmType ?? 'regular',
         );
       }
     }
+  }
+
+  /// Show a goal reminder notification
+  static Future<void> showGoalNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    await _plugin.show(
+      id,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelGoal,
+          'Goal Reminder',
+          channelDescription: 'Notifications for your daily goals',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+          color: Color(0xFF8B5CF6),
+          category: AndroidNotificationCategory.reminder,
+        ),
+      ),
+    );
+  }
+
+  /// Show a bedtime reminder notification
+  static Future<void> showBedtimeNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    await _plugin.show(
+      id,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelBedtime,
+          'Bedtime Reminder',
+          channelDescription: 'Wake-up and sleep time reminders',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+          color: Color(0xFF818CF8),
+        ),
+      ),
+    );
   }
 
   static Future<void> showInstantNotification({
@@ -302,7 +436,7 @@ class NotificationService {
       body,
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'focus_forward_default',
+          channelDefault,
           'Focus Forward',
           channelDescription: 'General notifications',
           importance: Importance.high,

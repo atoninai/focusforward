@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/goal.dart';
 import '../services/storage_service.dart';
+import '../services/notification_service.dart';
 
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key});
@@ -82,14 +83,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
             ),
             onPressed: () {
               if (ctrl.text.isNotEmpty) {
+                final goalTitle = ctrl.text;
                 setState(() {
                   _goals.add(Goal(
                     id: DateTime.now().millisecondsSinceEpoch.toString(),
-                    title: ctrl.text,
+                    title: goalTitle,
                     createdAt: DateTime.now(),
                   ));
                 });
                 StorageService.saveGoals(_goals);
+                // Fire goal notification
+                NotificationService.showGoalNotification(
+                  id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                  title: '🎯 New Goal Set!',
+                  body: goalTitle,
+                );
                 Navigator.pop(ctx);
               }
             },

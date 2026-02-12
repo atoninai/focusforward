@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -20,15 +21,24 @@ class _AlarmScreenState extends State<AlarmScreen> {
   String _defaultSound = 'motivational_alarm';
   final AudioPlayer _audioPlayer = AudioPlayer();
   String? _playingSound;
+  Timer? _clockTimer;
+  DateTime _currentTime = DateTime.now();
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    // Update clock every second for real-time display
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() => _currentTime = DateTime.now());
+      }
+    });
   }
 
   @override
   void dispose() {
+    _clockTimer?.cancel();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -279,10 +289,11 @@ class _AlarmScreenState extends State<AlarmScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = _currentTime;
     final timeStr = DateFormat('hh:mm').format(now);
     final period = DateFormat('a').format(now);
     final dateStr = DateFormat('EEEE, MMM d').format(now);
+    final secondStr = DateFormat('ss').format(now);
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundDark,
@@ -379,6 +390,15 @@ class _AlarmScreenState extends State<AlarmScreen> {
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                                 letterSpacing: -2,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                            Text(
+                              ':$secondStr',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w400,
+                                color: Colors.white.withValues(alpha: 0.5),
                                 fontFamily: 'monospace',
                               ),
                             ),
