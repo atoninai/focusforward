@@ -1,4 +1,6 @@
 import 'dart:ui' show Color;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
@@ -32,9 +34,12 @@ class NotificationService {
     // Get the REAL device timezone using flutter_timezone
     try {
       final String timeZoneName = await FlutterTimezone.getLocalTimezone();
+      debugPrint('[NotificationService] Device timezone: $timeZoneName');
       tz.setLocalLocation(tz.getLocation(timeZoneName));
-    } catch (_) {
-      // Fallback: try offset matching as last resort
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to set timezone: $e');
+      // Fallback: try offset matching
+      bool matched = false;
       try {
         final now = DateTime.now();
         final localOffset = now.timeZoneOffset;
@@ -42,13 +47,22 @@ class NotificationService {
           final tzNow = tz.TZDateTime.now(loc);
           if (tzNow.timeZoneOffset == localOffset) {
             tz.setLocalLocation(loc);
+            debugPrint('[NotificationService] Offset-matched timezone: ${loc.name}');
+            matched = true;
             break;
           }
         }
-      } catch (_) {
-        // Keep UTC as absolute last resort
+      } catch (e2) {
+        debugPrint('[NotificationService] Offset matching also failed: $e2');
+      }
+      if (!matched) {
+        // Force UTC fallback to prevent crashes — alarms may fire at wrong time
+        // but at least they WILL fire
+        tz.setLocalLocation(tz.UTC);
+        debugPrint('[NotificationService] FALLBACK: Using UTC. Alarms may be offset.');
       }
     }
+    debugPrint('[NotificationService] tz.local is now: ${tz.local.name}');
 
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -319,23 +333,12 @@ class NotificationService {
 
       final notifId = alarmId.hashCode.abs() % 100000;
 
-      await _plugin.zonedSchedule(
-        notifId,
-        '$prefix $title',
-        body,
-        scheduledDate,
-        details,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
-    } else {
-      // Repeating — schedule one per day of week
-      for (final day in repeatDays) {
-        final notifId = (alarmId.hashCode.abs() % 100000) + day;
-        final now = tz.TZDateTime.now(tz.local);
-        final scheduledDate = _nextTZDateForDay(day, hour, minute, now);
+      debugPrint('[NotificationService] Scheduling one-time alarm:');
+      debugPrint('  ID: $alarmId (notifId: $notifId)');
+      debugPrint('  Time: $scheduledDate (ISO: ${scheduledDate.toIso8601String()})');
+      debugPrint('  Now:  $now');
 
+      try {
         await _plugin.zonedSchedule(
           notifId,
           '$prefix $title',
@@ -345,8 +348,43 @@ class NotificationService {
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
         );
+        debugPrint('  ✓ Alarm scheduled successfully');
+      } on PlatformException catch (e) {
+        debugPrint('  ✗ PlatformException scheduling alarm: ${e.message}');
+        debugPrint('    This usually means SCHEDULE_EXACT_ALARM permission is missing.');
+      } catch (e) {
+        debugPrint('  ✗ Failed to schedule alarm: $e');
+      }
+    } else {
+      // Repeating — schedule one per day of week
+      for (final day in repeatDays) {
+        final notifId = (alarmId.hashCode.abs() % 100000) + day;
+        final now = tz.TZDateTime.now(tz.local);
+        final scheduledDate = _nextTZDateForDay(day, hour, minute, now);
+
+        debugPrint('[NotificationService] Scheduling repeating alarm:');
+        debugPrint('  ID: $alarmId day=$day (notifId: $notifId)');
+        debugPrint('  Time: $scheduledDate (ISO: ${scheduledDate.toIso8601String()})');
+
+        try {
+          await _plugin.zonedSchedule(
+            notifId,
+            '$prefix $title',
+            body,
+            scheduledDate,
+            details,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+          );
+          debugPrint('  ✓ Repeating alarm day=$day scheduled successfully');
+        } on PlatformException catch (e) {
+          debugPrint('  ✗ PlatformException scheduling repeating alarm: ${e.message}');
+        } catch (e) {
+          debugPrint('  ✗ Failed to schedule repeating alarm: $e');
+        }
       }
     }
   }

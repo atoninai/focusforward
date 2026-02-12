@@ -22,17 +22,24 @@ void main() async {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
 
-  // Initialize notifications
+  // Initialize notifications (timezone + channels + plugin)
   await NotificationService.initialize();
 
-  // Schedule all saved alarms on app start — critical for reliability
-  try {
-    final alarms = await StorageService.getAlarms();
-    final bedAlarms = await StorageService.getBedAlarms();
-    final allAlarms = [...alarms, ...bedAlarms];
-    await NotificationService.scheduleAllAlarms(allAlarms);
-  } catch (_) {
-    // First launch, no alarms saved yet
+  // Only schedule alarms if permissions were already granted (not first launch).
+  // On first launch, PermissionScreen handles granting + initial schedule.
+  final permissionsGranted = await StorageService.arePermissionsGranted();
+  if (permissionsGranted) {
+    try {
+      final alarms = await StorageService.getAlarms();
+      final bedAlarms = await StorageService.getBedAlarms();
+      final allAlarms = [...alarms, ...bedAlarms];
+      debugPrint('[main] Scheduling ${allAlarms.length} saved alarms on startup');
+      await NotificationService.scheduleAllAlarms(allAlarms);
+    } catch (e) {
+      debugPrint('[main] Error scheduling alarms on startup: $e');
+    }
+  } else {
+    debugPrint('[main] Permissions not yet granted — skipping alarm scheduling');
   }
 
   runApp(const FocusForwardApp());
