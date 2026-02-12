@@ -144,10 +144,10 @@ class NotificationService {
 
   /// Schedule a snooze notification 5 min from now
   static Future<void> _scheduleSnooze(int originalId) async {
-    final snoozeTime = DateTime.now().add(const Duration(minutes: 5));
     final snoozeId = originalId + 10000;
 
-    final tzSnoozeTime = tz.TZDateTime.from(snoozeTime, tz.local);
+    // Construct snooze time directly in local timezone — avoid DateTime.from() conversion
+    final tzSnoozeTime = tz.TZDateTime.now(tz.local).add(const Duration(minutes: 5));
 
     await _plugin.zonedSchedule(
       snoozeId,
