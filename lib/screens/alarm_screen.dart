@@ -411,20 +411,67 @@ class _AlarmScreenState extends State<AlarmScreen> {
                         ),
                       ],
                     ),
-                    GestureDetector(
-                      onTap: _showDefaultSoundPicker,
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppTheme.cardBorder,
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await NotificationService.showInstantNotification(
+                                id: 99999,
+                                title: '🔔 Test Notification',
+                                body: 'If you see this, notifications work!',
+                              );
+                              if (mounted) {
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Test notification sent! Check your notification bar.'),
+                                    duration: Duration(seconds: 3),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text('Failed to send notification: $e'),
+                                    backgroundColor: Colors.red,
+                                    duration: const Duration(seconds: 5),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppTheme.primary.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: const Icon(Icons.notifications_active,
+                                color: AppTheme.primary, size: 22),
                           ),
                         ),
-                        child: const Icon(Icons.settings,
-                            color: Colors.white, size: 22),
-                      ),
+                        GestureDetector(
+                          onTap: _showDefaultSoundPicker,
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppTheme.cardBorder,
+                              ),
+                            ),
+                            child: const Icon(Icons.settings,
+                                color: Colors.white, size: 22),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

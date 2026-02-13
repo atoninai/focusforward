@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../services/storage_service.dart';
+import '../services/notification_service.dart';
 import 'main_screen.dart';
 
 class PermissionScreen extends StatefulWidget {
@@ -100,6 +101,15 @@ class _PermissionScreenState extends State<PermissionScreen>
     await Permission.ignoreBatteryOptimizations.request();
 
     await StorageService.setPermissionsGranted(true);
+
+    // Fire a test notification to confirm the pipeline works after permissions granted
+    try {
+      await NotificationService.showInstantNotification(
+        id: 88889,
+        title: '🔔 Permissions granted!',
+        body: 'Alarms and notifications are now active.',
+      );
+    } catch (_) {}
 
     if (!mounted) return;
     Navigator.of(context).pushReplacement(

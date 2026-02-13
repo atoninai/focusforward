@@ -79,8 +79,10 @@ class NotificationService {
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (androidPlugin != null) {
-      await androidPlugin.requestNotificationsPermission();
-      await androidPlugin.requestExactAlarmsPermission();
+      final notifGranted = await androidPlugin.requestNotificationsPermission();
+      debugPrint('[NotificationService] Notification permission granted: $notifGranted');
+      final exactGranted = await androidPlugin.requestExactAlarmsPermission();
+      debugPrint('[NotificationService] Exact alarm permission granted: $exactGranted');
     }
 
     // ─── Create notification channels ───
@@ -160,6 +162,13 @@ class NotificationService {
       enableVibration: true,
     );
     await androidPlugin?.createNotificationChannel(defaultChannel);
+
+    // ─── Diagnostic: log permission status and pending notifications ───
+    final pending = await _plugin.pendingNotificationRequests();
+    debugPrint('[NotificationService] Channels created. Pending notifications: ${pending.length}');
+    for (final p in pending) {
+      debugPrint('  Pending: id=${p.id}, title=${p.title}');
+    }
   }
 
   /// Handle notification action taps in the foreground
@@ -216,7 +225,7 @@ class NotificationService {
       ),
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
     );
   }
 
@@ -361,7 +370,7 @@ class NotificationService {
           details,
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          androidScheduleMode: AndroidScheduleMode.alarmClock,
         );
         debugPrint('  ✓ Alarm scheduled successfully');
       } on PlatformException catch (e) {
@@ -390,7 +399,7 @@ class NotificationService {
             details,
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            androidScheduleMode: AndroidScheduleMode.alarmClock,
             matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
           );
           debugPrint('  ✓ Repeating alarm day=$day scheduled successfully');
@@ -565,7 +574,7 @@ class NotificationService {
         ),
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: AndroidScheduleMode.alarmClock,
         matchDateTimeComponents: DateTimeComponents.time, // repeat daily
       );
       debugPrint('  ✓ Routine reminder scheduled successfully');

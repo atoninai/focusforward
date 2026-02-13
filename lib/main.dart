@@ -25,6 +25,19 @@ void main() async {
   // Initialize notifications (timezone + channels + plugin)
   await NotificationService.initialize();
 
+  // DIAGNOSTIC: Fire an immediate notification right after init to verify pipeline
+  // This runs BEFORE any permission checks to confirm notifications work at all
+  try {
+    await NotificationService.showInstantNotification(
+      id: 88888,
+      title: '✅ Focus Forward is ready!',
+      body: 'Notifications are working on this device.',
+    );
+    debugPrint('[main] ✓ Diagnostic notification sent successfully');
+  } catch (e) {
+    debugPrint('[main] ✗ DIAGNOSTIC FAILED: $e');
+  }
+
   // Only schedule alarms if permissions were already granted (not first launch).
   // On first launch, PermissionScreen handles granting + initial schedule.
   final permissionsGranted = await StorageService.arePermissionsGranted();
