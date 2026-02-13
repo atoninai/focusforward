@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../services/storage_service.dart';
-import '../services/notification_service.dart';
 import 'main_screen.dart';
 
 class PermissionScreen extends StatefulWidget {
@@ -99,13 +98,6 @@ class _PermissionScreenState extends State<PermissionScreen>
 
     // 4. Request battery optimization exemption — critical for alarm reliability
     await Permission.ignoreBatteryOptimizations.request();
-
-    // 5. Send a test notification to verify everything works
-    try {
-      await NotificationService.testAlarmNotification();
-    } catch (_) {
-      // Ignore errors in test
-    }
 
     await StorageService.setPermissionsGranted(true);
 

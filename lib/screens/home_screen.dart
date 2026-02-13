@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
 import '../models/routine.dart';
 import '../services/storage_service.dart';
+import '../services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -41,6 +42,36 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final routines = await StorageService.getRoutines();
     setState(() => _routines = routines);
     _fillController.forward();
+    // Schedule notifications for all routines with valid times
+    _scheduleAllRoutineNotifications();
+  }
+
+  /// Parse a time string like '10:00 AM' into {hour, minute} in 24h format.
+  /// Returns null if the time string is invalid (e.g. 'All Day').
+  static Map<String, int>? _parseTimeString(String time) {
+    final match = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)', caseSensitive: false)
+        .firstMatch(time);
+    if (match == null) return null;
+    var hour = int.parse(match.group(1)!);
+    final minute = int.parse(match.group(2)!);
+    final period = match.group(3)!.toUpperCase();
+    if (period == 'PM' && hour != 12) hour += 12;
+    if (period == 'AM' && hour == 12) hour = 0;
+    return {'hour': hour, 'minute': minute};
+  }
+
+  Future<void> _scheduleAllRoutineNotifications() async {
+    for (final routine in _routines) {
+      final parsed = _parseTimeString(routine.time);
+      if (parsed != null) {
+        await NotificationService.scheduleRoutineReminder(
+          routineId: routine.id,
+          name: routine.name,
+          hour: parsed['hour']!,
+          minute: parsed['minute']!,
+        );
+      }
+    }
   }
 
   @override
@@ -140,15 +171,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             onPressed: () {
               if (nameCtrl.text.isNotEmpty) {
+                final newRoutine = Routine(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: nameCtrl.text,
+                  icon: 'check_circle',
+                  time: timeCtrl.text.isEmpty ? 'All Day' : timeCtrl.text,
+                );
                 setState(() {
-                  _routines.add(Routine(
-                    id: DateTime.now().millisecondsSinceEpoch.toString(),
-                    name: nameCtrl.text,
-                    icon: 'check_circle',
-                    time: timeCtrl.text.isEmpty ? 'All Day' : timeCtrl.text,
-                  ));
+                  _routines.add(newRoutine);
                 });
                 StorageService.saveRoutines(_routines);
+                // Schedule notification for the new routine
+                final parsed = _parseTimeString(newRoutine.time);
+                if (parsed != null) {
+                  NotificationService.scheduleRoutineReminder(
+                    routineId: newRoutine.id,
+                    name: newRoutine.name,
+                    hour: parsed['hour']!,
+                    minute: parsed['minute']!,
+                  );
+                }
                 Navigator.pop(ctx);
               }
             },

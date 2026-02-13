@@ -25,6 +25,7 @@ class NotificationService {
   static const String channelAlarm = 'focus_forward_alarm_channel';
   static const String channelBedtime = 'bedtime_reminder';
   static const String channelGoal = 'goal_reminder';
+  static const String channelRoutine = 'routine_reminder';
   static const String channelDefault = 'focus_forward_default';
 
   static Future<void> initialize() async {
@@ -135,6 +136,17 @@ class NotificationService {
       enableVibration: true,
     );
     await androidPlugin?.createNotificationChannel(goalChannel);
+
+    // Routine reminder channel
+    const routineChannel = AndroidNotificationChannel(
+      channelRoutine,
+      'Routine Reminders',
+      description: 'Notifications for your daily routines',
+      importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    );
+    await androidPlugin?.createNotificationChannel(routineChannel);
 
     // Default channel
     const defaultChannel = AndroidNotificationChannel(
@@ -507,30 +519,65 @@ class NotificationService {
     );
   }
 
-  /// Test: fire an instant alarm notification to verify everything works
-  static Future<void> testAlarmNotification() async {
-    await _plugin.show(
-      99999,
-      '⏰ Test Alarm',
-      'If you see this, alarm notifications are working!',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          channelAlarm,
-          'Alarms',
-          channelDescription: 'Test alarm notification',
-          importance: Importance.max,
-          priority: Priority.max,
-          icon: '@mipmap/ic_launcher',
-          color: Color(0xFF8B5CF6),
-          sound: RawResourceAndroidNotificationSound('loud_alarm_sound'),
-          playSound: true,
-          enableVibration: true,
-          fullScreenIntent: true,
-          category: AndroidNotificationCategory.alarm,
-          visibility: NotificationVisibility.public,
+  /// Schedule a daily routine reminder notification
+  static Future<void> scheduleRoutineReminder({
+    required String routineId,
+    required String name,
+    required int hour,
+    required int minute,
+  }) async {
+    final notifId = routineId.hashCode.abs() % 100000 + 50000; // offset to avoid alarm ID collisions
+
+    final now = tz.TZDateTime.now(tz.local);
+    var scheduledDate = tz.TZDateTime(
+        tz.local, now.year, now.month, now.day, hour, minute);
+
+    // If the time has already passed today, schedule for tomorrow
+    if (scheduledDate.isBefore(now) || scheduledDate.isAtSameMomentAs(now)) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+
+    debugPrint('[NotificationService] Scheduling routine reminder:');
+    debugPrint('  Routine: $name (notifId: $notifId)');
+    debugPrint('  Time: $scheduledDate');
+
+    try {
+      await _plugin.zonedSchedule(
+        notifId,
+        '📋 $name',
+        'Time for your routine: $name',
+        scheduledDate,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelRoutine,
+            'Routine Reminders',
+            channelDescription: 'Notifications for your daily routines',
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+            color: Color(0xFF8B5CF6),
+            category: AndroidNotificationCategory.reminder,
+            visibility: NotificationVisibility.public,
+            autoCancel: true,
+          ),
         ),
-      ),
-    );
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        matchDateTimeComponents: DateTimeComponents.time, // repeat daily
+      );
+      debugPrint('  ✓ Routine reminder scheduled successfully');
+    } on PlatformException catch (e) {
+      debugPrint('  ✗ PlatformException scheduling routine: ${e.message}');
+    } catch (e) {
+      debugPrint('  ✗ Failed to schedule routine reminder: $e');
+    }
+  }
+
+  /// Cancel a routine reminder notification
+  static Future<void> cancelRoutineReminder(String routineId) async {
+    final notifId = routineId.hashCode.abs() % 100000 + 50000;
+    await _plugin.cancel(notifId);
   }
 
   static Future<void> cancelNotification(int id) async {

@@ -110,23 +110,21 @@ class _AlarmScreenState extends State<AlarmScreen> {
     await StorageService.saveAlarms(_alarms);
     await StorageService.saveBedAlarms(_bedAlarms);
 
-    // Check exact alarm permission before scheduling
+    // Warn if exact alarm permission is missing, but still schedule
+    // (the plugin will fall back to inexact alarms)
     final exactAlarmStatus = await Permission.scheduleExactAlarm.status;
-    if (!exactAlarmStatus.isGranted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-                'Exact alarm permission required. Tap to open Settings.'),
-            action: SnackBarAction(
-              label: 'Settings',
-              onPressed: () => openAppSettings(),
-            ),
-            duration: const Duration(seconds: 5),
+    if (!exactAlarmStatus.isGranted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'Exact alarm permission not granted. Alarms may be slightly delayed. Tap to fix.'),
+          action: SnackBarAction(
+            label: 'Settings',
+            onPressed: () => openAppSettings(),
           ),
-        );
-      }
-      return;
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
 
     final allAlarms = [..._alarms, ..._bedAlarms];
