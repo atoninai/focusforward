@@ -21,12 +21,12 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  // ─── Channel IDs ───
-  static const String channelAlarm = 'focus_forward_alarm_channel';
-  static const String channelBedtime = 'bedtime_reminder';
-  static const String channelGoal = 'goal_reminder';
-  static const String channelRoutine = 'routine_reminder';
-  static const String channelDefault = 'focus_forward_default';
+  // ─── Channel IDs (v2: force-recreated with correct sound/audio attributes) ───
+  static const String channelAlarm = 'focus_forward_alarm_channel_v2';
+  static const String channelBedtime = 'bedtime_reminder_v2';
+  static const String channelGoal = 'goal_reminder_v2';
+  static const String channelRoutine = 'routine_reminder_v2';
+  static const String channelDefault = 'focus_forward_default_v2';
 
   static Future<void> initialize() async {
     // CRITICAL: Initialize ALL timezones first
@@ -85,7 +85,7 @@ class NotificationService {
 
     // ─── Create notification channels ───
 
-    // Main alarm channel (Importance.max, with sound)
+    // Main alarm channel (Importance.max, with sound + alarm audio attributes)
     const alarmChannel = AndroidNotificationChannel(
       channelAlarm,
       'Alarms',
@@ -94,23 +94,25 @@ class NotificationService {
       playSound: true,
       enableVibration: true,
       sound: RawResourceAndroidNotificationSound('loud_alarm_sound'),
+      audioAttributesUsage: AudioAttributesUsage.alarm,
     );
     await androidPlugin?.createNotificationChannel(alarmChannel);
 
-    // Per-sound alarm channels
+    // Per-sound alarm channels (v2 IDs + alarm audio attributes)
     for (final sound in [
       'motivational_alarm',
       'loud_alarm_sound',
       'extreme_alarm_clock'
     ]) {
       final channel = AndroidNotificationChannel(
-        'alarm_$sound',
+        'alarm_${sound}_v2',
         'Alarm - ${_soundDisplayName(sound)}',
         description: 'Alarm notifications with $sound sound',
         importance: Importance.max,
         playSound: true,
         enableVibration: true,
         sound: RawResourceAndroidNotificationSound(sound),
+        audioAttributesUsage: AudioAttributesUsage.alarm,
       );
       await androidPlugin?.createNotificationChannel(channel);
     }
@@ -239,7 +241,7 @@ class NotificationService {
         return channelBedtime;
       case 'regular':
       default:
-        return 'alarm_$soundFile';
+        return 'alarm_${soundFile}_v2';
     }
   }
 
